@@ -1,0 +1,39 @@
+name: Create And Push Image to Docker Hub
+
+on:
+  push:
+    branches: ['main']
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from pom.xml
+        id: extract_version
+        run: |
+          VERSION=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)
+          echo "Versão extraída do pom.xml: $VERSION"
+          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker Image
+        run: |
+          TAG=${{ steps.extract_version.outputs.tag }}
+          echo "Building Docker image with tag: $TAG"
+          ./mvnw clean package -Dnative
+          docker build -t suntzu12/quarkus-payment-router-java-21:$TAG -f docker/Dockerfile.native-micro .
+
+      - name: Push Docker Image
+        run: |
+          TAG=${{ steps.extract_version.outputs.tag }}
+          docker push suntzu12/quarkus-payment-router-java-21:$TAG
