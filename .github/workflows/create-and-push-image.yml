@@ -13,6 +13,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup GraalVM 21
+        run: |
+          wget https://download.oracle.com/graalvm/21/latest/graalvm-jdk-21_linux-x64_bin.tar.gz
+          sudo tar -xzf graalvm-jdk-21_linux-x64_bin.tar.gz -C /usr/lib/jvm/
+          echo "/usr/lib/jvm/graalvm-jdk-21/bin" >> $GITHUB_PATH
+          echo "JAVA_HOME=/usr/lib/jvm/graalvm-jdk-21" >> $GITHUB_ENV
+
+      - name: Verify java version
+        run: java -version
+
       - name: Extract version from pom.xml
         id: extract_version
         run: |
