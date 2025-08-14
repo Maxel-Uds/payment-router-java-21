@@ -1,8 +1,8 @@
 DROP TABLE IF EXISTS payments;
 
 CREATE TABLE payments (
-    correlationId VARCHAR(150) PRIMARY KEY NOT NULL UNIQUE,
+    correlation_id VARCHAR(150) PRIMARY KEY NOT NULL UNIQUE,
     amount DOUBLE PRECISION NOT NULL,
-    requestedAt TIMESTAMP,
+    requested_at TIMESTAMP NOT NULL,
     provider VARCHAR(10) NOT NULL
 );
