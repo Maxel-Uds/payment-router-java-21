@@ -19,4 +19,4 @@ down: ## Para a aplicação
 	@docker-compose -f infra-for-test/docker-compose.yml down
 
 test: ## Executa o teste de estresse
-	@k6 run -e MAX_REQUESTS=550 rinha-test/rinha.js
+	@k6 run -e MAX_REQUESTS=603 rinha-test/rinha.js

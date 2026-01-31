@@ -70,7 +70,7 @@ services:
 
 ##### Minha infra
   api01:
-    image: quarkus-payment-router-java-21:test
+    image: suntzu12/quarkus-payment-router-java-21:2.0.0
     container_name: api01
     depends_on:
       - payment-router-db
@@ -95,7 +95,7 @@ services:
       - payment-processor
 
   api02:
-    image: quarkus-payment-router-java-21:test
+    image: suntzu12/quarkus-payment-router-java-21:2.0.0
     container_name: api02
     depends_on:
       - payment-router-db
@@ -130,7 +130,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=rinha
     volumes:
-      - ./init-router.sql:/docker-entrypoint-initdb.d/init-router.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     deploy:
       resources:
         limits:

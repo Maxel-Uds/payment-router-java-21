@@ -1,146 +1,464 @@
-#!/usr/bin/env bash
+import { textSummary } from "https://jslib.k6.io/k6-summary/0.1.0/index.js";
+import { uuidv4 } from "https://jslib.k6.io/k6-utils/1.4.0/index.js";
+import { sleep } from "k6";
+import exec from "k6/execution";
+import { Counter } from "k6/metrics";
+import {
+  token,
+  setPPToken,
+  setPPDelay,
+  setPPFailure,
+  resetPPDatabase,
+  getPPPaymentsSummary,
+  resetBackendDatabase,
+  getBackendPaymentsSummary,
+  requestBackendPayment,
+} from "./requests.js";
 
-export GIT_EDITOR=true
+import Big from "https://cdn.jsdelivr.net/npm/big.js@7.0.1/big.min.js";
 
-startContainers() {
-    pushd ../payment-processor > /dev/null
-        docker compose up --build -d 1> /dev/null 2>&1
-    popd > /dev/null
-    pushd ../participantes/$1 > /dev/null
-        services=$(docker compose config --services | wc -l)
-        echo "" > docker-compose.logs
-        nohup docker compose up --build >> docker-compose.logs &
-    popd > /dev/null
-    #expectedServicesUp=$(( services + 4 ))
-    #servicesUp=$(docker ps | grep ' Up ' | wc -l)
+const MAX_REQUESTS = __ENV.MAX_REQUESTS ?? 603;
+
+export const options = {
+  summaryTrendStats: ["p(99)", "count"],
+  scenarios: {
+    payments: {
+      exec: "payments",
+      executor: "ramping-vus",
+      startVUs: 1,
+      gracefulRampDown: "0s",
+      stages: [{ target: MAX_REQUESTS, duration: "300s" }],
+    },
+    payments_consistency: {
+      exec: "checkPaymentsConsistency",
+      executor: "constant-vus",
+      duration: "300s",
+      vus: "1",
+    },
+    // Bom, vamos começar suave, né?
+    // Aquecimento e tal pra ninguém se lesionar no começo.
+    stage_00: {
+      exec: "define_stage",
+      startTime: "1s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "0",
+        defaultFailure: "false",
+        fallbackDelay: "0",
+        fallbackFailure: "false",
+      },
+    },
+    // Só vai usar default e foda-se mesmo?
+    // Escolhas...
+    stage_01: {
+      exec: "define_stage",
+      startTime: "30s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "1000",
+        defaultFailure: "false",
+        fallbackDelay: "0",
+        fallbackFailure: "false",
+      },
+    },
+    // Pode ser que escolher só o defaul não seja uma
+    // ideia tão ruim assim...
+    stage_02: {
+      exec: "define_stage",
+      startTime: "60s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "500",
+        defaultFailure: "false",
+        fallbackDelay: "0",
+        fallbackFailure: "false",
+      },
+    },
+    // Ás vezes vale pagar mais caro por um serviço melhor, sabe?
+    // NPS, satisfação do cliente, etc.
+    // Dizem que recuperar um cliente é muito mais difícil do que
+    // conquistar um novo.
+    stage_03: {
+      exec: "define_stage",
+      startTime: "90s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "2000",
+        defaultFailure: "true",
+        fallbackDelay: "1000",
+        fallbackFailure: "false",
+      },
+    },
+    // Sua estratégia é só usar o defaul mesmo?
+    // Tomar que não :pray:
+    stage_04: {
+      exec: "define_stage",
+      startTime: "120s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "5000",
+        defaultFailure: "true",
+        fallbackDelay: "5",
+        fallbackFailure: "false",
+      },
+    },
+    // Vai que agora tá bom e barato.
+    // Inclusive, o mais caro tá até pior, né?
+    stage_05: {
+      exec: "define_stage",
+      startTime: "150s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "0",
+        defaultFailure: "false",
+        fallbackDelay: "5",
+        fallbackFailure: "true",
+      },
+    },
+    // É... sei lá... só vai.
+    stage_06: {
+      exec: "define_stage",
+      startTime: "180s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "100",
+        defaultFailure: "false",
+        fallbackDelay: "5",
+        fallbackFailure: "false",
+      },
+    },
+    // Tá acabando... espero que você esteja bem, backend.
+    // Até porque o default que é mais barato, não tá legal de novo.
+    stage_07: {
+      exec: "define_stage",
+      startTime: "210s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "50",
+        defaultFailure: "false",
+        fallbackDelay: "0",
+        fallbackFailure: "false",
+      },
+    },
+    // Reta quase final... escolhas boas geram bons frutos, né?
+    stage_08: {
+      exec: "define_stage",
+      startTime: "240s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "103",
+        defaultFailure: "false",
+        fallbackDelay: "10",
+        fallbackFailure: "false",
+      },
+    },
+    // Reta final... é aquilo, né? Minha mãe me ensinou
+    // que economia na base da porcaria nunca vale a pena.
+    stage_09: {
+      exec: "define_stage",
+      startTime: "270s",
+      executor: "constant-vus",
+      vus: 1,
+      duration: "1s",
+      tags: {
+        defaultDelay: "2000",
+        defaultFailure: "false",
+        fallbackDelay: "0",
+        fallbackFailure: "false",
+      },
+    },
+  },
+};
+
+const transactionsSuccessCounter = new Counter("transactions_success");
+const transactionsFailureCounter = new Counter("transactions_failure");
+const totalTransactionsAmountCounter = new Counter("total_transactions_amount");
+const paymentsInconsistencyCounter = new Counter("payments_inconsistency");
+
+const defaultTotalAmountCounter = new Counter("default_total_amount");
+const defaultTotalRequestsCounter = new Counter("default_total_requests");
+const fallbackTotalAmountCounter = new Counter("fallback_total_amount");
+const fallbackTotalRequestsCounter = new Counter("fallback_total_requests");
+
+const defaultTotalFeeCounter = new Counter("default_total_fee");
+const fallbackTotalFeeCounter = new Counter("fallback_total_fee");
+
+export async function setup() {
+  await setPPToken("default", token);
+  await setPPToken("fallback", token);
+  await resetPPDatabase("default");
+  await resetPPDatabase("fallback");
+  await resetBackendDatabase();
 }
 
-stopContainers() {
-    pushd ../participantes/$1
-        docker compose down -v --remove-orphans
-        docker compose rm -s -v -f
-    popd > /dev/null
-    pushd ../payment-processor > /dev/null
-        docker compose down --volumes > /dev/null
-    popd > /dev/null
+const paymentRequestFixedAmount = new Big(20.05);
+
+export async function teardown() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 360 * 1000); // 6 minutos atrás
+
+  console.info(`summaries from ${from.toISOString()} to ${to.toISOString()}`);
+
+  const defaultResponse = await getPPPaymentsSummary(
+    "default",
+    from.toISOString(),
+    to.toISOString(),
+  );
+  const fallbackResponse = await getPPPaymentsSummary(
+    "fallback",
+    from.toISOString(),
+    to.toISOString(),
+  );
+
+  const totalTransactionsAmount = new Big(defaultResponse.totalAmount).plus(
+    fallbackResponse.totalAmount,
+  );
+
+  totalTransactionsAmountCounter.add(totalTransactionsAmount.toNumber());
+
+  defaultTotalAmountCounter.add(defaultResponse.totalAmount);
+  defaultTotalRequestsCounter.add(defaultResponse.totalRequests);
+  fallbackTotalAmountCounter.add(fallbackResponse.totalAmount);
+  fallbackTotalRequestsCounter.add(fallbackResponse.totalRequests);
+
+  const defaultTotalFee = new Big(defaultResponse.feePerTransaction).times(
+    defaultResponse.totalAmount,
+  );
+  const fallbackTotalFee = new Big(fallbackResponse.feePerTransaction).times(
+    fallbackResponse.totalAmount,
+  );
+
+  defaultTotalFeeCounter.add(defaultTotalFee.toNumber());
+  fallbackTotalFeeCounter.add(fallbackTotalFee.toNumber());
 }
 
-MAX_REQUESTS=550
+export async function payments() {
+  const payload = {
+    correlationId: uuidv4(),
+    amount: paymentRequestFixedAmount.toNumber(),
+  };
 
-while true; do
+  const response = await requestBackendPayment(payload);
 
-    # docker system prune -a -f --volumes
+  if ([200, 201, 202, 204].includes(response.status)) {
+    transactionsSuccessCounter.add(1);
+    transactionsFailureCounter.add(0);
+  } else {
+    transactionsSuccessCounter.add(0);
+    transactionsFailureCounter.add(1);
+  }
 
-    for directory in ../participantes/*; do
-    (
-        git pull
-        participant=$(echo $directory | sed -e 's/..\/participantes\///g' -e 's/\///g')
-        echo "========================================"
-        echo "  Participant $participant starting..."
-        echo "========================================"
+  sleep(1);
+}
 
-        testedFile="$directory/partial-results.json"
+export async function checkPaymentsConsistency() {
+  const now = new Date();
 
-        if ! test -f $testedFile; then
-            touch $testedFile
-            echo "executing test for $participant..."
-            stopContainers $participant
-            startContainers $participant
+  const from = new Date(now - 1000 * 15).toISOString();
+  const to = new Date(now - 2000).toISOString();
 
-            success=1
-            max_attempts=15
-            attempt=1
-            while [ $success -ne 0 ] && [ $max_attempts -ge $attempt ]; do
-                curl -f -s http://localhost:9999/payments-summary
-                success=$?
-                echo "tried $attempt out of $max_attempts..."
-                sleep 5
-                ((attempt++))
-            done
+  const defaultAdminPaymentsSummaryPromise = getPPPaymentsSummary(
+    "default",
+    from,
+    to,
+  );
+  const fallbackAdminPaymentsSummaryPromise = getPPPaymentsSummary(
+    "fallback",
+    from,
+    to,
+  );
+  const backendPaymentsSummaryPromise = getBackendPaymentsSummary(from, to);
 
-            if [ $success -eq 0 ]; then
-                echo "" > $directory/k6.logs
-                k6 run -e MAX_REQUESTS=$MAX_REQUESTS -e PARTICIPANT=$participant -e TOKEN=$(uuidgen) --log-output=file=$directory/k6.logs rinha.js
-                stopContainers $participant
-                echo "======================================="
-                echo "working on $participant"
-                sed -i '1001,$d' $directory/docker-compose.logs
-                sed -i '1001,$d' $directory/k6.logs
-                echo "log truncated at line 1000" >> $directory/docker-compose.logs
-                echo "log truncated at line 1000" >> $directory/k6.logs
-            else
-                stopContainers $participant
-                echo "[$(date)] Seu backend não respondeu nenhuma das $max_attempts tentativas de GET para http://localhost:9999/payments-summary. Teste abortado." > $directory/error.logs
-                echo "[$(date)] Inspecione o arquivo docker-compose.logs para mais informações." >> $directory/error.logs
-                echo "Could not get a successful response from backend... aborting test for $participant"
-            fi
+  const [
+    defaultAdminPaymentsSummary,
+    fallbackAdminPaymentsSummary,
+    backendPaymentsSummary,
+  ] = await Promise.all([
+    defaultAdminPaymentsSummaryPromise,
+    fallbackAdminPaymentsSummaryPromise,
+    backendPaymentsSummaryPromise,
+  ]);
 
-            git add $directory
-            git commit -m "add $participant's partial result"
-            git push
+  const inconsistencies =
+    Math.abs(
+      backendPaymentsSummary.default.totalRequests -
+        defaultAdminPaymentsSummary.totalRequests,
+    ) +
+    Math.abs(
+      backendPaymentsSummary.fallback.totalRequests -
+        fallbackAdminPaymentsSummary.totalRequests,
+    );
 
-            echo "================================="
-            echo "  Finished testing $participant!"
-            echo "================================="
+  paymentsInconsistencyCounter.add(inconsistencies);
 
-        else
-            echo "================================="
-            echo "  Skipping $participant"
-            echo "================================="
-        fi
+  if (inconsistencies > 0) {
+    console.warn(
+      "================ [inconsistências encontradas] ================",
+    );
+    console.warn(
+      `backend.default.totalRequests vs default.totalRequests: ${backendPaymentsSummary.default.totalRequests} vs ${defaultAdminPaymentsSummary.totalRequests}`,
+    );
+    console.warn(
+      `backend.fallback.totalRequests vs fallback.totalRequests: ${backendPaymentsSummary.fallback.totalRequests} vs ${fallbackAdminPaymentsSummary.totalRequests}`,
+    );
+  }
 
-        sleep 15
-    )
-    done
+  sleep(10);
+}
 
-    date
-    echo "generating results preview..."
+export async function define_stage() {
+  const defaultMs = parseInt(exec.vu.metrics.tags["defaultDelay"]);
+  const fallbackMs = parseInt(exec.vu.metrics.tags["fallbackDelay"]);
+  const defaultFailure = exec.vu.metrics.tags["defaultFailure"] === "true";
+  const fallbackFailure = exec.vu.metrics.tags["fallbackFailure"] === "true";
 
-    PREVIA_RESULTADOS=../PREVIA_RESULTADOS.md
+  await setPPDelay("default", defaultMs);
+  await setPPDelay("fallback", fallbackMs);
 
-    results=$(find ../participantes/*/partial-results.json -size +1b | wc -l)
-    errors=$(find ../participantes/*/partial-results.json -size 0 | wc -l)
-    total=$(find ../participantes/*/partial-results.json | wc -l)
+  await setPPFailure("default", defaultFailure);
+  await setPPFailure("fallback", fallbackFailure);
 
-    echo -e "# Prévia do Resultados da Rinha de Backend 2025" > $PREVIA_RESULTADOS
-    echo -e "Atualizado em **$(date)**" >> $PREVIA_RESULTADOS
-    echo -e "$total submissões / $results resultados / $errors submissões com erro" >> $PREVIA_RESULTADOS
-    echo -e "*Testes executados com MAX_REQUESTS=$MAX_REQUESTS*."
-    echo -e "\n" >> $PREVIA_RESULTADOS
-    echo -e "| participante | p99 | bônus por desempenho (%) | multa ($) | lucro | submissão |" >> $PREVIA_RESULTADOS
-    echo -e "| -- | -- | -- | -- | -- | -- |" >> $PREVIA_RESULTADOS
+  sleep(1);
+}
 
-    for partialResult in ../participantes/*/partial-results.json; do
-    (
-        participant=$(echo $partialResult | sed -e 's/..\/participantes\///g' -e 's/\///g' -e 's/partial\-results\.json//g')
-        link="https://github.com/zanfranceschi/rinha-de-backend-2025/tree/main/participantes/$participant"
+export function handleSummary(data) {
+  const total_transactions_requested =
+    data.metrics.transactions_success.values.count;
+  const actual_total_amount =
+    data.metrics.total_transactions_amount.values.count;
 
-        if [ -s $partialResult ]; then
-            cat $partialResult | jq -r '(["|", .participante, "|", .p99.valor, "|", .p99.bonus, "|", .multa.total, "|", .total_liquido, "|", "['$participant']('$link')"]) | @tsv' >> $PREVIA_RESULTADOS
-        fi
-    )
-    done
+  const default_total_fee = data.metrics.default_total_fee.values.count;
+  const fallback_total_fee = data.metrics.fallback_total_fee.values.count;
+  const total_fee = new Big(default_total_fee)
+    .plus(fallback_total_fee)
+    .toNumber();
 
-    echo -e "### Submissões com Erro" >> $PREVIA_RESULTADOS
-    echo -e "\n" >> $PREVIA_RESULTADOS
-    echo -e "| participante | submissão |" >> $PREVIA_RESULTADOS
-    echo -e "| -- | -- |" >> $PREVIA_RESULTADOS
-    for errorLog in ../participantes/*/error.logs; do
-    (
-        participant=$(echo $errorLog | sed -e 's/..\/participantes\///g' -e 's/\///g' -e 's/error\.logs//g')
-        link="https://github.com/zanfranceschi/rinha-de-backend-2025/tree/main/participantes/$participant"
-        echo "| $participant | [logs]($link) |" >> $PREVIA_RESULTADOS
-    )
-    done
+  const p_99 = new Big(
+    data.metrics["http_req_duration{expected_response:true}"].values["p(99)"],
+  )
+    .round(2)
+    .toNumber();
+  const p_99_bonus = Math.max(
+    new Big((11 - p_99) * 0.02).round(2).toNumber(),
+    0,
+  );
+  const contains_inconsistencies =
+    data.metrics.payments_inconsistency.values.count > 0;
 
-    PREVIA_RESULTADOS_JSON=../previa-resultados+participantes-info.json
-    python3 previa_resultados_json.py $PREVIA_RESULTADOS_JSON
+  const inconsistencies_fine = contains_inconsistencies ? 0.35 : 0;
 
-    git pull
-    git add $PREVIA_RESULTADOS_JSON
-    git add $PREVIA_RESULTADOS
-    git commit -m "previa resultados @ $(date)"
-    git push
-    echo "$(date) - waiting some time until next round..."
-    sleep 300
-done
+  // caixa dois
+  const lag =
+    data.metrics.transactions_success.values.count -
+    (data.metrics.default_total_requests.values.count +
+      data.metrics.fallback_total_requests.values.count);
+  const slush_fund = lag < 0;
+
+  const liquid_partial_amount = new Big(actual_total_amount)
+    .minus(total_fee)
+    .toNumber();
+
+  const liquid_amount = new Big(liquid_partial_amount)
+    .plus(new Big(liquid_partial_amount).times(p_99_bonus))
+    .minus(new Big(liquid_partial_amount).times(inconsistencies_fine))
+    .toNumber();
+
+  const name = __ENV.PARTICIPANT ?? "anonymous";
+
+  const custom_data = {
+    timestamp: new Date().toISOString(),
+    participante: name,
+    total_liquido: liquid_amount,
+    total_bruto: actual_total_amount,
+    total_taxas: total_fee,
+    descricao:
+      "'total_liquido' é sua pontuação final. Equivale ao seu lucro. Fórmula: total_liquido + (total_liquido * p99.bonus) - (total_liquido * multa.porcentagem)",
+    p99: {
+      valor: `${p_99}ms`,
+      bonus: `${new Big(p_99_bonus).times(100)}%`,
+      max_requests: MAX_REQUESTS,
+      descricao: "Fórmula para o bônus: max((11 - p99.valor) * 0.02, 0)",
+    },
+    multa: {
+      porcentagem: inconsistencies_fine,
+      total: new Big(liquid_partial_amount)
+        .times(inconsistencies_fine)
+        .toNumber(),
+      composicao: {
+        num_inconsistencias: data.metrics.payments_inconsistency.values.count,
+        descricao: "Se 'num_inconsistencias' > 0, há multa de 35%.",
+      },
+    },
+    caixa_dois: {
+      detectado: slush_fund,
+      descricao:
+        "Se 'lag' for negativo, significa que seu backend registrou mais pagamentos do que solicitado, automaticamente desclassificando sua submissão!",
+    },
+    lag: {
+      num_pagamentos_total:
+        data.metrics.default_total_requests.values.count +
+        data.metrics.fallback_total_requests.values.count,
+      num_pagamentos_solicitados:
+        data.metrics.transactions_success.values.count,
+      lag:
+        data.metrics.transactions_success.values.count -
+        (data.metrics.default_total_requests.values.count +
+          data.metrics.fallback_total_requests.values.count),
+      descricao:
+        "Lag é a diferença entre a quantidade de solicitações de pagamentos e o que foi realmente computado pelo backend. Mostra a perda de pagamentos possivelmente por estarem enfileirados.",
+    },
+    pagamentos_solicitados: {
+      qtd_sucesso: data.metrics.transactions_success.values.count,
+      qtd_falha: data.metrics.transactions_failure.values.count,
+      descricao:
+        "'qtd_sucesso' foram requests bem sucedidos para 'POST /payments' e 'qtd_falha' os requests com erro.",
+    },
+    pagamentos_realizados_default: {
+      total_bruto: data.metrics.default_total_amount.values.count,
+      num_pagamentos: data.metrics.default_total_requests.values.count,
+      total_taxas: data.metrics.default_total_fee.values.count,
+      descricao:
+        "Informações do backend sobre solicitações de pagamento para o Payment Processor Default.",
+    },
+    pagamentos_realizados_fallback: {
+      total_bruto: data.metrics.fallback_total_amount.values.count,
+      num_pagamentos: data.metrics.fallback_total_requests.values.count,
+      total_taxas: data.metrics.fallback_total_fee.values.count,
+      descricao:
+        "Informações do backend sobre solicitações de pagamento para o Payment Processor Fallback.",
+    },
+  };
+
+  const result = {
+    stdout: textSummary(data),
+  };
+
+  const participant = __ENV.PARTICIPANT;
+  let summaryJsonFileName = `../participantes/${participant}/final-results.json`;
+
+  if (participant == undefined) {
+    summaryJsonFileName = `./final-results.json`;
+  }
+
+  result[summaryJsonFileName] = JSON.stringify(custom_data, null, 2);
+
+  return result;
+}
