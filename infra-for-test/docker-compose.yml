@@ -70,16 +70,15 @@ services:
 
 ##### Minha infra
   api01:
-    image: suntzu12/quarkus-payment-router-java-21:2.0.0
+    image: quarkus-payment-router-java-21:test
     container_name: api01
     depends_on:
       - payment-router-db
     hostname: api01
-    ports:
-      - "8081:8080"
     environment:
-      BATCH_SIZE: 600
-      PROCESS_THREAD_POOL: 20
+      BATCH_SIZE: 1000
+      PROCESS_THREAD_POOL: 100
+      PROCESS_RATE: 800
       DB_USER: postgres
       DB_PASS: postgres
       QUARKUS_REST_CLIENT_DEFAULT_API_URL: http://payment-processor-default:8080
@@ -95,16 +94,15 @@ services:
       - payment-processor
 
   api02:
-    image: suntzu12/quarkus-payment-router-java-21:2.0.0
+    image: quarkus-payment-router-java-21:test
     container_name: api02
     depends_on:
       - payment-router-db
     hostname: api02
-    ports:
-      - "8082:8080"
     environment:
-      BATCH_SIZE: 600
-      PROCESS_THREAD_POOL: 20
+      BATCH_SIZE: 1000
+      PROCESS_THREAD_POOL: 100
+      PROCESS_RATE: 800
       DB_USER: postgres
       DB_PASS: postgres
       QUARKUS_REST_CLIENT_DEFAULT_API_URL: http://payment-processor-default:8080
@@ -123,8 +121,6 @@ services:
     image: postgres:17-alpine
     container_name: payment-router-db
     hostname: payment-router-db
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_USER=postgres

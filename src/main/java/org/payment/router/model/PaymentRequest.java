@@ -12,18 +12,16 @@ public class PaymentRequest {
     public PaymentRequest() {
     }
 
-    public PaymentRequest(String correlationId, Double amount) {
-        this.correlationId = correlationId;
-        this.amount = amount;
-    }
-
     public PaymentRequest setProvider(String provider) {
         this.provider = provider;
         return this;
     }
 
-    public PaymentRequest setRequestedAt(Instant now) {
-        this.requestedAt = now;
+    // Fixo desde a primeira tentativa: num 422 o processor guardou exatamente este valor.
+    public PaymentRequest markRequestedAtIfAbsent() {
+        if (this.requestedAt == null) {
+            this.requestedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        }
         return this;
     }
 
@@ -35,17 +33,5 @@ public class PaymentRequest {
                 ", requestedAt=" + requestedAt +
                 ", provider='" + provider + '\'' +
                 '}';
-    }
-
-    public PaymentRequest toProcessOnDefault() {
-        return new PaymentRequest(this.correlationId, this.amount)
-                .setProvider("default")
-                .setRequestedAt(Instant.now().truncatedTo(ChronoUnit.SECONDS));
-    }
-
-    public PaymentRequest toProcessOnFallback() {
-        return new PaymentRequest(this.correlationId, this.amount)
-                .setProvider("fallback")
-                .setRequestedAt(Instant.now().truncatedTo(ChronoUnit.SECONDS));
     }
 }
